@@ -32,7 +32,7 @@ resource "aws_internet_gateway" "main" {
   }
 }
 
-# Public Subnets
+# My Public Subnets
 resource "aws_subnet" "public" {
   count             = 2
   vpc_id            = aws_vpc.main.id
@@ -46,7 +46,7 @@ resource "aws_subnet" "public" {
   }
 }
       
-# Route Table
+# My Route Table
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
