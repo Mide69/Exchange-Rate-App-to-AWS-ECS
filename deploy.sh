@@ -2,51 +2,85 @@
 
 set -e
 
-# Configuration
-AWS_REGION="us-east-1"
-PROJECT_NAME="exchange-rate-app"
+echo "🚀 Starting deployment of Exchange Rate Application to AWS ECS..."
 
-echo "🚀 Starting deployment process..."
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
 
 # Check prerequisites
-echo "📋 Checking prerequisites..."
-command -v aws >/dev/null 2>&1 || { echo "❌ AWS CLI is required but not installed."; exit 1; }
-command -v terraform >/dev/null 2>&1 || { echo "❌ Terraform is required but not installed."; exit 1; }
-command -v docker >/dev/null 2>&1 || { echo "❌ Docker is required but not installed."; exit 1; }
+echo -e "${YELLOW}Checking prerequisites...${NC}"
+
+if ! command -v aws &> /dev/null; then
+    echo -e "${RED}AWS CLI is not installed. Please install it first.${NC}"
+    exit 1
+fi
+
+if ! command -v terraform &> /dev/null; then
+    echo -e "${RED}Terraform is not installed. Please install it first.${NC}"
+    exit 1
+fi
+
+if ! command -v docker &> /dev/null; then
+    echo -e "${RED}Docker is not installed. Please install it first.${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}✅ All prerequisites are installed${NC}"
 
 # Get AWS account ID
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-echo "✅ AWS Account ID: $AWS_ACCOUNT_ID"
+AWS_REGION="us-east-1"
+PROJECT_NAME="exchange-rate-app"
+
+echo -e "${YELLOW}AWS Account ID: ${AWS_ACCOUNT_ID}${NC}"
+echo -e "${YELLOW}AWS Region: ${AWS_REGION}${NC}"
 
 # Deploy infrastructure
-echo "🏗️  Deploying infrastructure with Terraform..."
+echo -e "${YELLOW}🏗️  Deploying infrastructure with Terraform...${NC}"
 cd terraform
+
 terraform init
 terraform plan
 terraform apply -auto-approve
 
 # Get ECR repository URL
-ECR_REPOSITORY_URL=$(terraform output -raw ecr_repository_url)
-echo "✅ ECR Repository: $ECR_REPOSITORY_URL"
+ECR_REPO_URL=$(terraform output -raw ecr_repository_url)
+echo -e "${GREEN}ECR Repository URL: ${ECR_REPO_URL}${NC}"
 
-# Return to root directory
 cd ..
 
-# Login to ECR
-echo "🔐 Logging into Amazon ECR..."
-aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPOSITORY_URL
-
 # Build and push Docker image
-echo "🐳 Building Docker image..."
-docker build -t $PROJECT_NAME .
+echo -e "${YELLOW}🐳 Building and pushing Docker image...${NC}"
 
-echo "📤 Pushing image to ECR..."
-docker tag $PROJECT_NAME:latest $ECR_REPOSITORY_URL:latest
-docker push $ECR_REPOSITORY_URL:latest
+# Login to ECR
+aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REPO_URL}
+
+# Build image
+docker build -t ${PROJECT_NAME} .
+
+# Tag image
+docker tag ${PROJECT_NAME}:latest ${ECR_REPO_URL}:latest
+
+# Push image
+docker push ${ECR_REPO_URL}:latest
+
+echo -e "${GREEN}✅ Docker image pushed successfully${NC}"
 
 # Get load balancer URL
-ALB_URL=$(cd terraform && terraform output -raw load_balancer_url)
+cd terraform
+LB_URL=$(terraform output -raw load_balancer_url)
+cd ..
 
-echo "✅ Deployment completed successfully!"
-echo "🌐 Application URL: $ALB_URL"
-echo "📝 Note: It may take a few minutes for the service to be fully available. Please be patient"
+echo -e "${GREEN}🎉 Deployment completed successfully!${NC}"
+echo -e "${GREEN}Application URL: ${LB_URL}${NC}"
+echo -e "${YELLOW}Note: It may take a few minutes for the service to be fully available.${NC}"
+
+# Wait for service to be stable
+echo -e "${YELLOW}⏳ Waiting for ECS service to stabilize...${NC}"
+aws ecs wait services-stable --cluster ${PROJECT_NAME}-cluster --services ${PROJECT_NAME}-service --region ${AWS_REGION}
+
+echo -e "${GREEN}✅ ECS service is now stable and ready!${NC}"
+echo -e "${GREEN}🌐 Access your application at: ${LB_URL}${NC}"
